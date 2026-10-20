@@ -128,6 +128,44 @@ def _scrub_environ(environ: Any) -> Any:
     return environ
 
 
+def _is_url_key(name: str) -> bool:
+    normalized = name.strip().lower().replace("-", "_")
+    return normalized.endswith(("url", "query", "query_string"))
+
+
+def _scrub_url_like(value: Any) -> Any:
+    """Scrub a value that may be a full URL or a bare query string."""
+    if isinstance(value, str):
+        try:
+            parts = urlsplit(value)
+        except ValueError:
+            return _scrub_query_string(value)
+        if parts.scheme or parts.netloc:
+            return _scrub_url(value)
+    return _scrub_query_string(value)
+
+
+def _scrub_span_data(data: Any) -> Any:
+    if isinstance(data, Mapping):
+        return {
+            name: _scrub_url_like(value) if _is_url_key(str(name)) else value for name, value in data.items()
+        }
+    if isinstance(data, (list, tuple)):
+        return [
+            (name, _scrub_url_like(value) if _is_url_key(str(name)) else value) for name, value in data
+        ]
+    return data
+
+
+def _scrub_spans(event: dict[str, Any]) -> None:
+    spans = event.get("spans")
+    if not isinstance(spans, list):
+        return
+    for span in spans:
+        if isinstance(span, dict) and "data" in span:
+            span["data"] = _scrub_span_data(span["data"])
+
+
 def _scrub_request(request: dict[str, Any]) -> None:
     if "query_string" in request:
         request["query_string"] = _scrub_query_string(request["query_string"])
@@ -145,6 +183,7 @@ def _scrub_event(event: dict[str, Any] | None) -> dict[str, Any] | None:
     request = event.get("request")
     if isinstance(request, dict):
         _scrub_request(request)
+    _scrub_spans(event)
     return event
 
 

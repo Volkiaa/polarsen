@@ -86,6 +86,63 @@ def test_query_string_in_raw_environ_is_redacted():
     assert scrubbed["request"]["env"]["PATH_INFO"] == "/v1/models"
 
 
+def _transaction_event():
+    return {
+        "type": "transaction",
+        "transaction": "POST /v1/models",
+        "spans": [
+            {
+                "span_id": "span1",
+                "op": "http.client",
+                "data": {
+                    "http.query": f"api_key={SECRET}&model=gemini",
+                    "url": f"https://generativelanguage.googleapis.com/v1/models?api_key={SECRET}&model=gemini",
+                    "http.response.status_code": 200,
+                },
+            }
+        ],
+    }
+
+
+def test_transaction_span_query_is_redacted_without_a_request():
+    event = _transaction_event()
+
+    scrubbed = sentry.before_send_transaction(event, {})
+
+    assert SECRET not in json.dumps(scrubbed)
+    data = scrubbed["spans"][0]["data"]
+    assert "model=gemini" in data["http.query"]
+    assert "generativelanguage.googleapis.com/v1/models" in data["url"]
+    assert data["http.response.status_code"] == 200
+
+
+def test_before_send_also_scrubs_spans():
+    event = _transaction_event()
+
+    scrubbed = sentry.before_send(event, {})
+
+    assert SECRET not in json.dumps(scrubbed)
+    assert scrubbed["transaction"] == "POST /v1/models"
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("http.query", f"api_key={SECRET}&model=gemini"),
+        ("url", f"https://example.com/v1/models?api_key={SECRET}&model=gemini"),
+        ("http.url", f"https://example.com/v1/models?api_key={SECRET}&model=gemini"),
+    ],
+)
+def test_span_url_and_query_keys_are_redacted(key, value):
+    event = _transaction_event()
+    event["spans"][0]["data"] = {key: value}
+
+    scrubbed = sentry.before_send_transaction(event, {})
+
+    assert SECRET not in scrubbed["spans"][0]["data"][key]
+    assert "model=gemini" in scrubbed["spans"][0]["data"][key]
+
+
 def test_headers_as_pairs_are_redacted():
     event = _event()
     event["request"]["headers"] = [("x-goog-api-key", SECRET), ("accept", "application/json")]
