@@ -176,3 +176,50 @@ def test_init_sentry_disables_pii_and_installs_callbacks(monkeypatch):
     assert calls[0]["send_default_pii"] is False
     assert calls[0]["before_send"] is sentry.before_send
     assert calls[0]["before_send_transaction"] is sentry.before_send_transaction
+
+
+def _nested_event():
+    return {
+        "event_id": "abc123",
+        "extra": {
+            "anything": {
+                "http.query": f"api_key={SECRET}&model=gemini",
+            }
+        },
+        "breadcrumbs": {
+            "values": [
+                {
+                    "type": "http",
+                    "data": {
+                        "http.query": f"api_key={SECRET}&model=gemini",
+                        "url": f"https://example.com/v1/models?api_key={SECRET}&model=gemini",
+                    },
+                }
+            ]
+        },
+    }
+
+
+def test_generic_pass_redacts_secret_outside_targeted_paths():
+    scrubbed = sentry.before_send(_nested_event(), {})
+
+    assert SECRET not in json.dumps(scrubbed)
+    assert "model=gemini" in scrubbed["extra"]["anything"]["http.query"]
+    assert "model=gemini" in scrubbed["breadcrumbs"]["values"][0]["data"]["http.query"]
+    assert "example.com/v1/models" in scrubbed["breadcrumbs"]["values"][0]["data"]["url"]
+
+
+def test_generic_pass_redacts_secret_named_keys_at_any_depth():
+    event = {
+        "extra": {
+            "anything": {"authorization": SECRET, "note": "keep me"},
+            "items": [{"x-goog-api-key": SECRET}, "api_key=" + SECRET + "&model=gemini"],
+        },
+        "transaction": "POST /v1/models",
+    }
+
+    scrubbed = sentry.before_send_transaction(event, {})
+
+    assert SECRET not in json.dumps(scrubbed)
+    assert scrubbed["extra"]["anything"]["note"] == "keep me"
+    assert scrubbed["transaction"] == "POST /v1/models"

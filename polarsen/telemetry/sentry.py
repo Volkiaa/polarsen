@@ -166,6 +166,42 @@ def _scrub_spans(event: dict[str, Any]) -> None:
             span["data"] = _scrub_span_data(span["data"])
 
 
+def _looks_like_url_or_query(value: str) -> bool:
+    if "=" in value and ("&" in value or "?" in value):
+        return True
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return False
+    return bool(parts.scheme and parts.netloc and parts.query)
+
+
+def _scrub_recursive_entry(name: Any, value: Any) -> Any:
+    text = str(name)
+    if _is_secret_header(text) or _is_secret_query_param(text):
+        return REDACTED
+    if _is_url_key(text):
+        value = _scrub_url_like(value)
+    return _scrub_event_recursively(value)
+
+
+def _scrub_event_recursively(value: Any) -> Any:
+    """Scrub credentials anywhere in an event structure, whatever produced it."""
+    if isinstance(value, dict):
+        for name in list(value):
+            value[name] = _scrub_recursive_entry(name, value[name])
+        return value
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            value[index] = _scrub_event_recursively(item)
+        return value
+    if isinstance(value, tuple):
+        return tuple(_scrub_event_recursively(item) for item in value)
+    if isinstance(value, str) and _looks_like_url_or_query(value):
+        return _scrub_url_like(value)
+    return value
+
+
 def _scrub_request(request: dict[str, Any]) -> None:
     if "query_string" in request:
         request["query_string"] = _scrub_query_string(request["query_string"])
@@ -184,7 +220,9 @@ def _scrub_event(event: dict[str, Any] | None) -> dict[str, Any] | None:
     if isinstance(request, dict):
         _scrub_request(request)
     _scrub_spans(event)
-    return event
+    # Last line of defence: Sentry adds the same request data to new keys in
+    # each SDK release, so scrub the whole structure rather than named paths.
+    return _scrub_event_recursively(event)
 
 
 def before_send(event: Any, _hint: Any) -> Any:
