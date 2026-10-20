@@ -1,7 +1,23 @@
 import os
+import sys
 from pathlib import Path
 
 _cur_dir = Path(__file__).parent
+
+
+def _get_internal_api_token() -> str:
+    _token = os.getenv("INTERNAL_API_TOKEN")
+    if _token:
+        return _token
+    if "pytest" in sys.modules:
+        # Tests do not have the production secret; the test client sends this value.
+        return "pytest-internal-api-token"
+    raise RuntimeError("INTERNAL_API_TOKEN environment variable must be set")
+
+
+# Internal API
+INTERNAL_API_TOKEN = _get_internal_api_token()
+
 # Postgres
 
 PG_HOST = os.getenv("PG_HOST", "localhost")
