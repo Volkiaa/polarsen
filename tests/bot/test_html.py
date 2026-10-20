@@ -82,6 +82,21 @@ def test_sanitize_html_escapes_text_inside_allowed_tags():
     assert sanitize_html("<b><script>x</script></b>") == "<b>&lt;script&gt;x&lt;/script&gt;</b>"
 
 
+def test_sanitize_html_keeps_valid_entities():
+    assert sanitize_html("<b>Tom &amp; Jerry</b>") == "<b>Tom &amp; Jerry</b>"
+    assert sanitize_html("&lt;script&gt;") == "&lt;script&gt;"
+    assert sanitize_html("&quot;quoted&quot; and &#39;apostrophe&#39;") == (
+        "&quot;quoted&quot; and &#39;apostrophe&#39;"
+    )
+    assert sanitize_html("&#123; and &#x1F;") == "&#123; and &#x1F;"
+
+
+def test_sanitize_html_escapes_raw_ampersands_and_unknown_entities():
+    assert sanitize_html("Tom & Jerry") == "Tom &amp; Jerry"
+    assert sanitize_html("&nbsp;") == "&amp;nbsp;"
+    assert sanitize_html("<i>A &amp; B & C</i>") == "<i>A &amp; B &amp; C</i>"
+
+
 def test_handle_message_sanitizes_model_answer(monkeypatch):
     from polarsen.bot import bot as bot_module
 
