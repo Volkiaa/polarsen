@@ -107,6 +107,27 @@ def _scrub_headers(headers: Any) -> Any:
     return headers
 
 
+def _is_query_string_key(name: str) -> bool:
+    normalized = name.strip().lower().replace("-", "_")
+    return normalized.endswith("query_string")
+
+
+def _scrub_environ_value(name: Any, value: Any) -> Any:
+    if _is_query_string_key(str(name)):
+        return _scrub_query_string(value)
+    if _is_secret_header(str(name)):
+        return REDACTED
+    return value
+
+
+def _scrub_environ(environ: Any) -> Any:
+    if isinstance(environ, Mapping):
+        return {name: _scrub_environ_value(name, value) for name, value in environ.items()}
+    if isinstance(environ, (list, tuple)):
+        return [(name, _scrub_environ_value(name, value)) for name, value in environ]
+    return environ
+
+
 def _scrub_request(request: dict[str, Any]) -> None:
     if "query_string" in request:
         request["query_string"] = _scrub_query_string(request["query_string"])
@@ -115,7 +136,7 @@ def _scrub_request(request: dict[str, Any]) -> None:
     if "headers" in request:
         request["headers"] = _scrub_headers(request["headers"])
     if "env" in request:
-        request["env"] = _scrub_headers(request["env"])
+        request["env"] = _scrub_environ(request["env"])
 
 
 def _scrub_event(event: dict[str, Any] | None) -> dict[str, Any] | None:

@@ -75,6 +75,17 @@ def test_secret_query_params_are_redacted(param):
     assert "model=gemini" in scrubbed["request"]["url"]
 
 
+def test_query_string_in_raw_environ_is_redacted():
+    event = _event()
+    event["request"]["env"]["QUERY_STRING"] = f"api_key={SECRET}&model=gemini"
+
+    scrubbed = sentry.before_send(event, {})
+
+    assert SECRET not in json.dumps(scrubbed)
+    assert "model=gemini" in scrubbed["request"]["env"]["QUERY_STRING"]
+    assert scrubbed["request"]["env"]["PATH_INFO"] == "/v1/models"
+
+
 def test_headers_as_pairs_are_redacted():
     event = _event()
     event["request"]["headers"] = [("x-goog-api-key", SECRET), ("accept", "application/json")]
