@@ -27,7 +27,7 @@ def delete_bucket_and_contents(minio_client, bucket_name):
 def auth_headers():
     from polarsen import env
 
-    return {"Authorization": f"Bearer {env.INTERNAL_API_TOKEN}"}
+    return {"Authorization": f"Bearer {env.get_internal_api_token()}"}
 
 
 @pytest.fixture(scope="session")

@@ -29,6 +29,8 @@ Mapping.register(asyncpg.Record)  # type: ignore[method-assign]
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # Fail at API startup rather than at import, so CLI and DB tooling can import polarsen.env.
+    env.get_internal_api_token()
     async with connect_pg(os.environ["_PG_URL"]):
         yield
 

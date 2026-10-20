@@ -5,18 +5,23 @@ from pathlib import Path
 _cur_dir = Path(__file__).parent
 
 
-def _get_internal_api_token() -> str:
-    _token = os.getenv("INTERNAL_API_TOKEN")
-    if _token:
-        return _token
+_TEST_INTERNAL_API_TOKEN = "pytest-internal-api-token"
+
+
+def get_internal_api_token() -> str:
+    """Return the shared internal API token.
+
+    Importing this module must not require the token. The CLI, listeners, and database
+    setup tooling import polarsen.env without serving the API.
+    """
+    token = os.getenv("INTERNAL_API_TOKEN")
+    if token:
+        return token
     if "pytest" in sys.modules:
         # Tests do not have the production secret; the test client sends this value.
-        return "pytest-internal-api-token"
+        return _TEST_INTERNAL_API_TOKEN
     raise RuntimeError("INTERNAL_API_TOKEN environment variable must be set")
 
-
-# Internal API
-INTERNAL_API_TOKEN = _get_internal_api_token()
 
 # Postgres
 

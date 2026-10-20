@@ -33,6 +33,16 @@ class TestAuth:
         resp = client.get("/models", headers={"Authorization": "Bearer wrong-token"})
         assert resp.status_code == HTTPStatus.UNAUTHORIZED
 
+    def test_reports_missing_server_token(self, anon_client, monkeypatch):
+        from polarsen.api import dependencies
+
+        def missing_token() -> str:
+            raise RuntimeError("INTERNAL_API_TOKEN environment variable must be set")
+
+        monkeypatch.setattr(dependencies.env, "get_internal_api_token", missing_token)
+        resp = anon_client.get("/models", headers={"Authorization": "Bearer anything"})
+        assert resp.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
     def test_accepts_valid_token(self, client):
         resp = client.get("/models")
         assert resp.status_code == HTTPStatus.OK

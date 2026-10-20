@@ -102,6 +102,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - API_URL=${API_URL:-http://api:5050}
+      - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN:?INTERNAL_API_TOKEN must be set in infra/.env}
     command: [ "start", "-vv" ]
     depends_on:
       - api
