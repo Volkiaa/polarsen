@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 import pytest
 
@@ -56,3 +57,17 @@ def test_pg_dsn_prefers_explicit_dsn(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("PG_DSN", "postgres://user:pass@db:5432/polarsen")
 
     assert env.get_pg_dsn() == "postgres://user:pass@db:5432/polarsen"
+
+
+def test_pg_dsn_encodes_credentials_with_uri_special_characters(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("PG_DSN", raising=False)
+    monkeypatch.setenv("PG_USER", "user@example.com")
+    monkeypatch.setenv("PG_PASSWORD", "p@ss/w:rd#1?")
+    monkeypatch.setenv("PG_DATABASE", "polarsen")
+
+    parsed = urlparse(env.get_pg_dsn())
+
+    assert unquote(parsed.username or "") == "user@example.com"
+    assert unquote(parsed.password or "") == "p@ss/w:rd#1?"
+    assert parsed.hostname == "localhost"
+    assert parsed.path == "/polarsen"

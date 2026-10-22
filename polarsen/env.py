@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from urllib.parse import quote
 
 _cur_dir = Path(__file__).parent
 
@@ -23,9 +24,10 @@ def get_pg_dsn() -> str:
         return dsn
     host = os.getenv("PG_HOST", PG_HOST)
     port = os.getenv("PG_PORT", str(PG_PORT))
-    user = os.getenv("PG_USER", PG_USER)
+    user = quote(os.getenv("PG_USER", PG_USER), safe="")
+    password = quote(get_pg_password(), safe="")
     database = os.getenv("PG_DATABASE", PG_DATABASE)
-    return f"postgres://{user}:{get_pg_password()}@{host}:{port}/{database}"
+    return f"postgres://{user}:{password}@{host}:{port}/{database}"
 
 
 def get_s3_access_key_id() -> str:
