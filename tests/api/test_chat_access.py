@@ -55,7 +55,7 @@ def _ask(client, chat_id: int, user_id: int):
     )
 
 
-def _upload(client, user_id: int, content: bytes, chat_id: int | None = None):
+def _upload(client, user_id: int, content: bytes, chat_id: int | None = None, declared_length: int | None = None):
     params = {
         "user_id": user_id,
         "filename": "chat.json",
@@ -67,7 +67,7 @@ def _upload(client, user_id: int, content: bytes, chat_id: int | None = None):
     return client.post(
         "/chats/upload",
         params=params,
-        headers={"X-Content-Length": str(len(content))},
+        headers={"X-Content-Length": str(len(content) if declared_length is None else declared_length)},
         content=content,
     )
 
@@ -138,3 +138,24 @@ def test_upload_allows_export_targeting_new_chat(client, chat_access, engine):
     assert resp.status_code == HTTPStatus.OK, resp.text
     uploads = fetch_one(engine, "SELECT count(*) AS count FROM general.chat_uploads")
     assert uploads is not None and uploads["count"] == 1
+
+
+@pytest.mark.parametrize(
+    "declared_length",
+    [
+        pytest.param(None, id="declared-length-matches-body"),
+        pytest.param(10, id="declared-length-understates-body"),
+    ],
+)
+def test_upload_rejects_export_over_size_limit(client, chat_access, engine, monkeypatch, declared_length):
+    from polarsen import env
+
+    owner, _, _ = chat_access
+    monkeypatch.setattr(env, "CHAT_UPLOAD_MAX_BYTES", 1024)
+
+    resp = _upload(client, owner["id"], generate_large_file(2048), declared_length=declared_length)
+
+    assert resp.status_code == HTTPStatus.CONTENT_TOO_LARGE
+    assert resp.json()["error_code"] == "invalid_file"
+    uploads = fetch_one(engine, "SELECT count(*) AS count FROM general.chat_uploads")
+    assert uploads is not None and uploads["count"] == 0

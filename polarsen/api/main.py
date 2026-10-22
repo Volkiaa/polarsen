@@ -3,7 +3,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any
 import asyncpg
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 
 from fastapi import FastAPI, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -147,6 +147,27 @@ async def _ask_question(
     return AskQuestion(response=resp, results=results, question_id=question_id)
 
 
+async def _read_export_body(request: Request, max_bytes: int) -> bytes:
+    """Read the export body, rejecting it as soon as it grows past max_bytes."""
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > max_bytes:
+            raise APIException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                reason=f"Export exceeds the {max_bytes} byte upload limit",
+                error_code=ErrorCode.invalid_file,
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def _iter_body(content: bytes) -> AsyncIterator[bytes]:
+    """Yield an already-read body as a stream for the S3 upload."""
+    yield content
+
+
 def _get_export_chat_internal_code(content: bytes) -> str | None:
     """Return the chat internal code declared by an exported chat file, if it can be read."""
     try:
@@ -202,7 +223,14 @@ async def _upload_chat(
             error_code=ErrorCode.invalid_headers,
         )
     content_length = int(_content_length)
-    content = await request.body()
+    max_bytes = env.CHAT_UPLOAD_MAX_BYTES
+    if content_length > max_bytes:
+        raise APIException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            reason=f"Export exceeds the {max_bytes} byte upload limit",
+            error_code=ErrorCode.invalid_file,
+        )
+    content = await _read_export_body(request, max_bytes=max_bytes)
     get_hash, update_hash = compute_md5()
 
     file_path = f"{user_id}/{filename}"
@@ -230,7 +258,7 @@ async def _upload_chat(
         await s3_file_upload(
             s3,
             session,
-            data=request.stream(),
+            data=_iter_body(content),
             bucket=bucket,
             key=file_path,
             on_chunk_received=update_hash,
