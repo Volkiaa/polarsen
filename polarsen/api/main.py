@@ -13,7 +13,7 @@ from polarsen.logs import logs
 from polarsen.s3_utils import s3_file_upload, s3_delete_object
 from polarsen.utils import compute_md5
 from polarsen import env
-from .data import User as UserDB, Question as QuestionDB
+from .data import User as UserDB, Question as QuestionDB, check_access_to_chat
 from polarsen.db import ChatUpload as ChatUploadDB
 from .dependencies import connect_pg, get_conn, get_client, get_s3_client
 from .models import NewUser, User, AIModel, AskQuestion, EmbeddingResult, Status, ChatUpload, ChatType
@@ -114,6 +114,12 @@ async def _ask_question(
     session=Depends(get_client),
 ) -> AskQuestion:
     """Ask a question regarding a chat."""
+    if not await check_access_to_chat(conn, chat_id, user_id):
+        raise APIException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            reason=f"User {user_id} does not have access to chat {chat_id}",
+            error_code=ErrorCode.forbidden,
+        )
     chat_sessions = ChatSession.get_session(model_name=model, api_key=api_key, rag_api_key=env.MISTRAL_API_KEY or "")
     chat_username = await UserDB.get_telegram_chat_username(conn, chat_id, user_id)
     with set_auth_headers(session, api_key):
@@ -147,11 +153,18 @@ async def _upload_chat(
     filename: str,
     mime_type: str,
     chat_type: ChatType,
+    chat_id: int | None = None,
     conn=Depends(get_conn),
     s3=Depends(get_s3_client),
     session=Depends(get_client),
 ) -> ChatUpload:
     """Upload a chat file."""
+    if chat_id is not None and not await check_access_to_chat(conn, chat_id, user_id):
+        raise APIException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            reason=f"User {user_id} does not have access to chat {chat_id}",
+            error_code=ErrorCode.forbidden,
+        )
     # TODO: Fix that later and use Content-Length
     _content_length = request.headers.get("X-Content-Length")
     if _content_length is None:

@@ -15,12 +15,12 @@ async def check_access_to_chat(conn: asyncpg.Connection, chat_id: int, user_id: 
     result = await conn.fetchval(
         """
         SELECT EXISTS (SELECT 1
-                       FROM general.chat_members
-                       WHERE chat_id = $1
-                         AND user_id = $2)
+                       FROM general.user_chats
+                       WHERE user_id = $1
+                         AND chat_id = $2)
         """,
-        chat_id,
         user_id,
+        chat_id,
     )
     return result is True
 
