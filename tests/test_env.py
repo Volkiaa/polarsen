@@ -63,6 +63,7 @@ def test_pg_dsn_encodes_credentials_with_uri_special_characters(monkeypatch: pyt
     monkeypatch.delenv("PG_DSN", raising=False)
     monkeypatch.setenv("PG_USER", "user@example.com")
     monkeypatch.setenv("PG_PASSWORD", "p@ss/w:rd#1?")
+    monkeypatch.setenv("PG_HOST", "localhost")
     monkeypatch.setenv("PG_DATABASE", "polarsen")
 
     parsed = urlparse(env.get_pg_dsn())
