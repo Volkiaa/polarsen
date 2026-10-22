@@ -7,7 +7,7 @@ import niquests
 from rich.progress import track
 
 from polarsen import env
-from polarsen.db import TelegramGroup, ChatUpload
+from polarsen.db import TelegramGroup, ChatUpload, DbChat, check_access_to_chat
 from polarsen.logs import logs
 from polarsen.s3_utils import s3_get_object
 
@@ -77,10 +77,22 @@ async def process_uploads(
         match chat_source:
             case "telegram":
                 group = TelegramGroup.load(json.loads(file_data.decode("utf-8")), show_progress=show_progress)
-                chat_id = await group.save(conn=conn, created_by=uploaded_by)
+                async with conn.transaction():
+                    internal_code = str(group.group_id)
+                    existing_chat_id = (await DbChat.get_ids(conn, [internal_code])).get(internal_code)
+                    if existing_chat_id is not None and not await check_access_to_chat(
+                        conn, existing_chat_id, uploaded_by
+                    ):
+                        _logs.error(
+                            f"User {uploaded_by} does not have access to chat {existing_chat_id}; "
+                            f"rejecting upload {upload_id}."
+                        )
+                        await ChatUpload.mark_processed(conn, chat_id=existing_chat_id, upload_id=upload_id)
+                        continue
+                    chat_id = await group.save(conn=conn, created_by=uploaded_by)
+                    await ChatUpload.mark_processed(conn, chat_id=chat_id, upload_id=upload_id)
             case _:
                 raise ValueError(f"Unsupported chat source {chat_source!r}")
 
-        await ChatUpload.mark_processed(conn, chat_id=chat_id, upload_id=upload_id)
         chat_ids.append(chat_id)
     return chat_ids

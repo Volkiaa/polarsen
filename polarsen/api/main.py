@@ -1,3 +1,4 @@
+import json
 import os
 from contextlib import asynccontextmanager
 from typing import Any
@@ -14,7 +15,7 @@ from polarsen.s3_utils import s3_file_upload, s3_delete_object
 from polarsen.utils import compute_md5
 from polarsen import env
 from .data import User as UserDB, Question as QuestionDB, check_access_to_chat
-from polarsen.db import ChatUpload as ChatUploadDB
+from polarsen.db import ChatUpload as ChatUploadDB, DbChat
 from .dependencies import connect_pg, get_conn, get_client, get_s3_client
 from .models import NewUser, User, AIModel, AskQuestion, EmbeddingResult, Status, ChatUpload, ChatType
 from .utils import APIException, get_user, ErrorCode
@@ -146,6 +147,33 @@ async def _ask_question(
     return AskQuestion(response=resp, results=results, question_id=question_id)
 
 
+def _get_export_chat_internal_code(content: bytes) -> str | None:
+    """Return the chat internal code declared by an exported chat file, if it can be read."""
+    try:
+        export = json.loads(content)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(export, dict) or "id" not in export:
+        return None
+    return str(export["id"])
+
+
+async def _check_upload_target_access(conn: asyncpg.Connection, user_id: int, content: bytes) -> None:
+    """Reject an upload that would merge into an existing chat the uploader cannot access."""
+    internal_code = _get_export_chat_internal_code(content)
+    if internal_code is None:
+        return
+    chat_id = (await DbChat.get_ids(conn, [internal_code])).get(internal_code)
+    if chat_id is None:
+        return
+    if not await check_access_to_chat(conn, chat_id, user_id):
+        raise APIException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            reason=f"User {user_id} does not have access to chat {chat_id}",
+            error_code=ErrorCode.forbidden,
+        )
+
+
 @app.post("/chats/upload", tags=[CHAT_TAG])
 async def _upload_chat(
     request: Request,
@@ -174,6 +202,7 @@ async def _upload_chat(
             error_code=ErrorCode.invalid_headers,
         )
     content_length = int(_content_length)
+    content = await request.body()
     get_hash, update_hash = compute_md5()
 
     file_path = f"{user_id}/{filename}"
@@ -197,6 +226,7 @@ async def _upload_chat(
     if not bucket:
         raise ValueError("CHAT_UPLOADS_S3_BUCKET must be set")
     async with conn.transaction():
+        await _check_upload_target_access(conn, user_id, content)
         await s3_file_upload(
             s3,
             session,
